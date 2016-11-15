@@ -15,79 +15,17 @@
 
 bool html_support = false;
 bool print_headers = false;
+bool replacing = false;
 char word[20];
 char tag[10];
 char lines[10][60];
 
+int pipefd[2]; // pipes for inter communication
+FILE *pp; // file descriptor for reading lines from pipe
+
 static char* progname;
 
 char *ptr;
-
-
-void remove_line_break(char *str) {
-	char *pos;
-	if ((pos=strchr(str, '\n')) != NULL)
- 	*pos = '\0';
-}
-
-void split(char *str, char **args, char *delimiter) {
-	ptr = strtok(str, delimiter);
-		int c = 0;
-		while(ptr != NULL) {
-			args[c] = ptr;
-			c++;
-		 	ptr = strtok(NULL, delimiter);
-		}
-		args[c] = 0;
-}
-
-void child1_execution(int *pipefd, char **args) {
-	close(pipefd[0]);    // close reading end in the child
-
-	dup2(pipefd[1], 1);  // send stdout to the pipe
-	dup2(pipefd[1], 2);  // send stderr to the pipe
-	    		
-	execvp(args[0], &args[0]);
-
-	close(pipefd[0]);
-	close(pipefd[1]);    // this descriptor is no longer needed
-	exit(EXIT_SUCCESS);
-}
-
-void child2_execution(int *pipefd, int line){
-	close(pipefd[1]);  // close the write end of the pipe in the parent
-	char buffer[1024];
-
-	if(html_support == true && line == 0) {
-		fprintf(stdout, "<html><head></head><body>\n");		
-	}
-
-	FILE *f = fdopen(pipefd[0], "r");
-	while (fgets(buffer, sizeof(buffer), f) != 0)
-	{
-		remove_line_break((char*)&buffer);
-
-		if(print_headers == true) {
-			fprintf(stdout, "<h1>%s</h1>\n", lines[line]);
-		}
-		if(strstr(buffer, word) != NULL) {
-			fprintf(stdout, "<%s>%s</%s><br />\n", tag, buffer, tag);
-		} else {
-			fprintf(stdout, "%s<br />\n", buffer);
-		}
-	}
-	fclose(f);
-
-  	if(html_support == true && strlen(lines[line + 1]) == 0) {
-		fprintf(stdout, "</body></html>");		
-  	}
-
-	fflush(stdout);
-
-	close(pipefd[0]);
-	exit(EXIT_SUCCESS);
-}
-
 
 /* === Implementations === */
 
@@ -96,6 +34,8 @@ int main(int argc, char** argv) {
 	memset(word, '\0', sizeof(word));
 	memset(tag, '\0', sizeof(tag));
 	memset(lines, '\0', sizeof(lines));
+
+	pipe(pipefd);
 
 	parse_args(argc, argv);
 
@@ -107,15 +47,11 @@ int main(int argc, char** argv) {
 	line = 0;
 	while(strlen(lines[line]) > 0) 
 	{
-
 		remove_line_break((char*)&lines[line]);
 
 		char *args[10];
 		char *delimiter = " ";
 		split(lines[line], args, delimiter); 
-
-		int pipefd[2];
-		pipe(pipefd);
 
 		int pid, pid2;
 		switch( pid=fork() ) {
@@ -132,17 +68,12 @@ int main(int argc, char** argv) {
 						break;
 					case  0:   /* Hier befinden Sie sich im Kindprozess   */
 						child2_execution((int*)&pipefd, line);
-	     			break;
-		  		default:   /* Hier befinden Sie sich im Elternprozess */ 
-
-		    		break;
+	     				break;
 				}
-
 	    		break;
 		}
 
 		line++;
-
 	}
 
 	exit(EXIT_SUCCESS);	
@@ -173,7 +104,9 @@ static void parse_args(int argc, char** argv) {
 	if(argc > 0) {
 		progname = argv[0];
 	}
-
+	if(argc > 5) {
+		bail_out(EXIT_FAILURE, "Usage: websh [-e] [-h] [-s WORD:TAG]");
+	}
 	while((opt = getopt(argc, argv, "ehs:")) != -1) {
 		switch(opt) {
 			case 'e':
@@ -183,11 +116,14 @@ static void parse_args(int argc, char** argv) {
 				print_headers = true;
 				break;
 			case 's':
+				replacing = true;
 				ptr = strchr(optarg, ':');
 				if(ptr != NULL) {
 				   int index = ptr - optarg;
 				   strncpy(word, optarg, index);
 				   strcpy(tag, optarg + index + 1);
+				} else {
+					bail_out(EXIT_FAILURE, "Usage: websh [-e] [-h] [-s WORD:TAG]");	
 				}
 				break;
 			default:
@@ -196,6 +132,71 @@ static void parse_args(int argc, char** argv) {
 	}
 }
 
+void remove_line_break(char *str) {
+	char *pos;
+	if ((pos=strchr(str, '\n')) != NULL)
+ 	*pos = '\0';
+}
+
+void split(char *str, char **args, char *delimiter) {
+	ptr = strtok(str, delimiter);
+	int c = 0;
+	while(ptr != NULL) {
+		args[c] = ptr;
+		c++;
+	 	ptr = strtok(NULL, delimiter);
+	}
+	args[c] = 0;
+}
+
+void child1_execution(int *pipefd, char **args) {
+	close(pipefd[0]);
+
+	dup2(pipefd[1], 1);  // send stdout to the pipe
+	dup2(pipefd[1], 2);  // send stderr to the pipe
+	    		
+	execvp(args[0], &args[0]);
+
+	free_resources();
+	exit(EXIT_SUCCESS);
+}
+
+void child2_execution(int *pipefd, int line){
+	close(pipefd[1]);
+	char buffer[1024];
+
+	if(html_support == true && line == 0) {
+		fprintf(stdout, "<html><head></head><body>\n");		
+	}
+
+	pp = fdopen(pipefd[0], "r");
+	while (fgets(buffer, sizeof(buffer), pp) != 0)
+	{
+		remove_line_break((char*)&buffer);
+
+		if(print_headers == true) {
+			fprintf(stdout, "<h1>%s</h1>\n", lines[line]);
+		}
+		if(replacing == true && strstr(buffer, word) != NULL) {
+			fprintf(stdout, "<%s>%s</%s><br />\n", tag, buffer, tag);
+		} else {
+			fprintf(stdout, "%s<br />\n", buffer);
+		}
+	}
+	fclose(pp);
+
+  	if(html_support == true && strlen(lines[line + 1]) == 0) {
+		fprintf(stdout, "</body></html>");		
+  	}
+
+	fflush(stdout);
+
+	free_resources();
+	exit(EXIT_SUCCESS);
+}
+
 static void free_resources(void) {
-	
+	if(pipefd[0] > 0) close(pipefd[0]);
+	if(pipefd[1] > 0) close(pipefd[1]);
+	if(pp != NULL) fclose(pp);
 }

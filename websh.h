@@ -11,6 +11,15 @@
 
 /* === Prototypes === */
 
+void split(char *str, char **args, char *delimiter);
+
+void remove_line_break(char *str);
+
+void child1_execution(int *pipefd, char **args);
+
+void child2_execution(int *pipefd, int line);
+
+
 /*
  * @brief Prints fmt on stderr, free resources and closes program with exitcode
  * @param exitcode Exitcode that should be returned for termination of process
