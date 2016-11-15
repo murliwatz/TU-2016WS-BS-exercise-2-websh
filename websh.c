@@ -73,6 +73,12 @@ int main(int argc, char** argv) {
 	    		break;
 		}
 
+		int status = 0;
+		int pid_w = wait(&status);
+		if (pid_w != pid && pid_w != pid2) {
+        	bail_out(EXIT_FAILURE, "wait()");
+      	}
+
 		line++;
 	}
 
