@@ -23,6 +23,72 @@ static char* progname;
 
 char *ptr;
 
+
+void remove_line_break(char *str) {
+	char *pos;
+	if ((pos=strchr(str, '\n')) != NULL)
+ 	*pos = '\0';
+}
+
+void split(char *str, char **args, char *delimiter) {
+	ptr = strtok(str, delimiter);
+		int c = 0;
+		while(ptr != NULL) {
+			args[c] = ptr;
+			c++;
+		 	ptr = strtok(NULL, delimiter);
+		}
+		args[c] = 0;
+}
+
+void child1_execution(int *pipefd, char **args) {
+	close(pipefd[0]);    // close reading end in the child
+
+	dup2(pipefd[1], 1);  // send stdout to the pipe
+	dup2(pipefd[1], 2);  // send stderr to the pipe
+	    		
+	execvp(args[0], &args[0]);
+
+	close(pipefd[0]);
+	close(pipefd[1]);    // this descriptor is no longer needed
+	exit(EXIT_SUCCESS);
+}
+
+void child2_execution(int *pipefd, int line){
+	close(pipefd[1]);  // close the write end of the pipe in the parent
+	char buffer[1024];
+
+	if(html_support == true && line == 0) {
+		fprintf(stdout, "<html><head></head><body>\n");		
+	}
+
+	FILE *f = fdopen(pipefd[0], "r");
+	while (fgets(buffer, sizeof(buffer), f) != 0)
+	{
+		remove_line_break((char*)&buffer);
+
+		if(print_headers == true) {
+			fprintf(stdout, "<h1>%s</h1>\n", lines[line]);
+		}
+		if(strstr(buffer, word) != NULL) {
+			fprintf(stdout, "<%s>%s</%s><br />\n", tag, buffer, tag);
+		} else {
+			fprintf(stdout, "%s<br />\n", buffer);
+		}
+	}
+	fclose(f);
+
+  	if(html_support == true && strlen(lines[line + 1]) == 0) {
+		fprintf(stdout, "</body></html>");		
+  	}
+
+	fflush(stdout);
+
+	close(pipefd[0]);
+	exit(EXIT_SUCCESS);
+}
+
+
 /* === Implementations === */
 
 int main(int argc, char** argv) {
@@ -42,21 +108,11 @@ int main(int argc, char** argv) {
 	while(strlen(lines[line]) > 0) 
 	{
 
-		char *pos;
-		if ((pos=strchr(lines[line], '\n')) != NULL)
-	    *pos = '\0';
+		remove_line_break((char*)&lines[line]);
 
-		// initialisieren und ersten Abschnitt erstellen
-		char delimiter[] = " ";
-		ptr = strtok(lines[line], delimiter);
 		char *args[10];
-		int c = 0;
-		while(ptr != NULL) {
-			args[c] = ptr;
-			c++;
-		 	ptr = strtok(NULL, delimiter);
-		}
-		args[c] = 0;
+		char *delimiter = " ";
+		split(lines[line], args, delimiter); 
 
 		int pipefd[2];
 		pipe(pipefd);
@@ -67,16 +123,7 @@ int main(int argc, char** argv) {
 				bail_out(EXIT_FAILURE, "fork error");
 				break;
 			case  0:   /* Hier befinden Sie sich im Kindprozess   */
-				close(pipefd[0]);    // close reading end in the child
-
-				dup2(pipefd[1], 1);  // send stdout to the pipe
-			    dup2(pipefd[1], 2);  // send stderr to the pipe
-	    		
-	    		execvp(args[0], &args[0]);
-
-	    		close(pipefd[0]);
-			    close(pipefd[1]);    // this descriptor is no longer needed
-			    exit(EXIT_SUCCESS);
+				child1_execution((int*)&pipefd, args);
 	     		break;
 	  		default:   /* Hier befinden Sie sich im Elternprozess */ 
 				switch( pid2=fork() ) {
@@ -84,39 +131,7 @@ int main(int argc, char** argv) {
 						bail_out(EXIT_FAILURE, "fork error");
 						break;
 					case  0:   /* Hier befinden Sie sich im Kindprozess   */
-						close(pipefd[1]);  // close the write end of the pipe in the parent
-						char buffer[1024];
-
-						if(html_support == true && line == 0) {
-			    			fprintf(stdout, "<html><head></head><body>\n");		
-			    		}
-
-						FILE *f = fdopen(pipefd[0], "r");
-						while (fgets(buffer, sizeof(buffer), f) != 0)
-			    		{
-			    			char *pos;
-							if ((pos=strchr(buffer, '\n')) != NULL)
-						    *pos = '\0';
-
-			    			if(print_headers == true) {
-			    				fprintf(stdout, "<h1>%s</h1>\n", lines[line]);
-			    			}
-			    			if(strstr(buffer, word) != NULL) {
-			    				fprintf(stdout, "<%s>%s</%s><br />\n", tag, buffer, tag);
-			    			} else {
-			    				fprintf(stdout, "%s<br />\n", buffer);
-			    			}
-			    		}
-			    		fclose(f);
-
-			    		if(html_support == true && strlen(lines[line + 1]) == 0) {
-			    			fprintf(stdout, "</body></html>");		
-			    		}
-
-			    		fflush(stdout);
-
-			    		close(pipefd[0]);
-			    		exit(EXIT_SUCCESS);
+						child2_execution((int*)&pipefd, line);
 	     			break;
 		  		default:   /* Hier befinden Sie sich im Elternprozess */ 
 
