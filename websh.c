@@ -1,8 +1,9 @@
 /**
+ * @file websh.c
  * @brief main c file for the implementation of websh
  * @author Paul Pröll, 1525669
- * @date 2016-10-08
-*/
+ * @date 2016-11-15
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,22 +14,36 @@
 #include <stdbool.h>
 #include "websh.h"
 
-bool html_support = false;
+/** true if option -e is on, otherwise false */
+bool html_support = false; 
+
+/** true if option -h is on, otherwise false */
 bool print_headers = false;
+
+/** true if argument -s is set, otherwise false */ 
 bool replacing = false;
+
+/** first part of -s WORD:TAG */
 char word[20];
-char tag[10];
-char lines[10][60];
 
-int pipefd[2]; // pipes for inter communication
-FILE *pp; // file descriptor for reading lines from pipe
+/** second part of -s WORD:TAG */ 
+char tag[10]; 
 
-static char* progname;
+/** used to read all commands that should be executed */
+char lines[10][60]; 
 
-char *ptr;
+/** pipes for intercommunication */
+int pipefd[2]; 
 
-/* === Implementations === */
+/** file descriptor for reading lines from pipe */
+FILE *pp; 
 
+/** name of this program */
+static char* progname; 
+
+/**
+ * @brief entry point where the program is executed
+ */
 int main(int argc, char** argv) {
 
 	memset(word, '\0', sizeof(word));
@@ -54,7 +69,7 @@ int main(int argc, char** argv) {
 		split(lines[line], args, delimiter); 
 
 		int pid, pid2;
-		switch( pid=fork() ) {
+		switch(pid=fork()) {
 			case -1:   /* Fehler bei fork() */ 
 				bail_out(EXIT_FAILURE, "fork error");
 				break;
@@ -62,7 +77,7 @@ int main(int argc, char** argv) {
 				child1_execution((int*)&pipefd, args);
 	     		break;
 	  		default:   /* Hier befinden Sie sich im Elternprozess */ 
-				switch( pid2=fork() ) {
+				switch(pid2 = fork()) {
 					case -1:   /* Fehler bei fork() */ 
 						bail_out(EXIT_FAILURE, "fork error");
 						break;
@@ -85,6 +100,12 @@ int main(int argc, char** argv) {
 	exit(EXIT_SUCCESS);	
 }
 
+/**
+ * @brief Prints fmt on stderr, free resources and closes program with exitcode
+ * @param exitcode Exitcode that should be returned for termination of process
+ * @param fmt String to print out
+ * @param ...
+ */
 static void bail_out(int exitcode, const char *fmt, ...)
 {
     va_list ap;
@@ -104,6 +125,11 @@ static void bail_out(int exitcode, const char *fmt, ...)
     exit(exitcode);
 }
 
+/**
+ * @brief Parses the program arguments
+ * @param argc Count of arguments
+ * @param argv Array of arguments
+ */
 static void parse_args(int argc, char** argv) {
 	int opt;
 
@@ -123,6 +149,7 @@ static void parse_args(int argc, char** argv) {
 				break;
 			case 's':
 				replacing = true;
+				char *ptr;
 				ptr = strchr(optarg, ':');
 				if(ptr != NULL) {
 				   int index = ptr - optarg;
@@ -138,13 +165,24 @@ static void parse_args(int argc, char** argv) {
 	}
 }
 
+/**
+ * @brief Removes line breaks could be on the end of a string
+ * @param str String that should be changed
+ */
 void remove_line_break(char *str) {
 	char *pos;
 	if ((pos=strchr(str, '\n')) != NULL)
  	*pos = '\0';
 }
 
+/**
+ * @brief Splits a String to an array of Strings where a delimiter is
+ * @param str String that should be splitted
+ * @param args Array where the Strings should be written to
+ * @param delimiter One or more delimiters
+ */
 void split(char *str, char **args, char *delimiter) {
+	char *ptr;
 	ptr = strtok(str, delimiter);
 	int c = 0;
 	while(ptr != NULL) {
@@ -155,6 +193,11 @@ void split(char *str, char **args, char *delimiter) {
 	args[c] = 0;
 }
 
+/**
+ * @brief The code for child procress 1 (execution of a process)
+ * @param pipefd Pipes for intercommunication
+ * @param args Process with arguments that should be executed
+ */
 void child1_execution(int *pipefd, char **args) {
 	close(pipefd[0]);
 
@@ -167,6 +210,11 @@ void child1_execution(int *pipefd, char **args) {
 	exit(EXIT_SUCCESS);
 }
 
+/**
+ * @brief The code for child procress 2 (output generation)
+ * @param pipefd Pipes for intercommunication
+ * @param line Line number (index for array 'Lines')
+ */
 void child2_execution(int *pipefd, int line){
 	close(pipefd[1]);
 	char buffer[1024];
@@ -201,6 +249,9 @@ void child2_execution(int *pipefd, int line){
 	exit(EXIT_SUCCESS);
 }
 
+/**
+ *  @brief Free allocated resources
+ */
 static void free_resources(void) {
 	if(pipefd[0] > 0) close(pipefd[0]);
 	if(pipefd[1] > 0) close(pipefd[1]);
