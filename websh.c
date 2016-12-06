@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <stdarg.h>
 #include <stdbool.h>
+#include <wait.h>
 #include "websh.h"
 
 /** true if option -e is on, otherwise false */
@@ -91,8 +92,8 @@ int main(int argc, char** argv) {
 		int status = 0;
 		int pid_w = wait(&status);
 		if (pid_w != pid && pid_w != pid2) {
-        	bail_out(EXIT_FAILURE, "wait()");
-      	}
+        		bail_out(EXIT_FAILURE, "wait()");
+      		}
 
 		line++;
 	}
@@ -237,7 +238,6 @@ void child2_execution(int *pipefd, int line){
 			fprintf(stdout, "%s<br />\n", buffer);
 		}
 	}
-	fclose(pp);
 
   	if(html_support == true && strlen(lines[line + 1]) == 0) {
 		fprintf(stdout, "</body></html>");		
