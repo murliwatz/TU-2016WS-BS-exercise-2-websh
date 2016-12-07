@@ -8,7 +8,9 @@
 #ifndef WEBSH_H_
 #define WEBSH_H_
 
-static void split(char *str, char **args, char *delimiter); 
+#define BUFFER_SIZE (4096)
+
+static char **split(char *str, char *delimiter); 
 
 static void remove_line_break(char *str);
 

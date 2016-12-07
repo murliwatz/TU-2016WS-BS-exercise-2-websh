@@ -12,7 +12,7 @@
 #include <errno.h>
 #include <stdarg.h>
 #include <stdbool.h>
-#include <wait.h>
+#include <sys/wait.h>
 #include "websh.h"
 
 /** true if option -e is on, otherwise false */
@@ -25,13 +25,16 @@ bool print_headers = false;
 bool replacing = false;
 
 /** first part of -s WORD:TAG */
-char word[20];
+char *word;
 
 /** second part of -s WORD:TAG */ 
-char tag[10]; 
+char *tag; 
 
 /** used to read all commands that should be executed */
-char lines[10][60]; 
+char **lines; 
+
+/** buffer for child_execution2 */
+char *buffer;
 
 /** pipes for intercommunication */
 int pipefd[2]; 
@@ -47,27 +50,38 @@ static char* progname;
  */
 int main(int argc, char** argv) {
 
-	memset(word, '\0', sizeof(word));
-	memset(tag, '\0', sizeof(tag));
-	memset(lines, '\0', sizeof(lines));
-
 	pipe(pipefd);
 
 	parse_args(argc, argv);
 
-	int line = 0;
-	while(fgets (lines[line], sizeof(lines[line]), stdin) !=NULL) {
-		line++;
+	char *line;
+	int line_count = 0;
+	if((line = (char *) malloc(BUFFER_SIZE)) == NULL) {
+		bail_out(EXIT_FAILURE, "allocation error");
+	}
+	while(fgets(line, BUFFER_SIZE, stdin) != NULL) {
+		line_count++;
+		if(lines == NULL) {
+			lines = malloc(line_count * sizeof(char *));
+		} else {
+			lines = realloc(lines, line_count * sizeof(char *));
+		}
+		lines[line_count - 1] = line;
+		if((line = (char *) malloc(BUFFER_SIZE)) == NULL) {
+			bail_out(EXIT_FAILURE, "allocation error");
+		}
 	}
 
-	line = 0;
-	while(strlen(lines[line]) > 0) 
-	{
-		remove_line_break((char*)&lines[line]);
+	lines = realloc(lines, (line_count + 1) * sizeof(char *));
+	lines[line_count] = NULL;
 
-		char *args[10];
+	for(int i = 0; i < line_count; i++) 
+	{
+		remove_line_break(lines[i]);
+
+		char **args = NULL;
 		char *delimiter = " ";
-		split(lines[line], args, delimiter); 
+		args = split(lines[i], delimiter); 
 
 		int pid, pid2;
 		switch(pid=fork()) {
@@ -83,7 +97,7 @@ int main(int argc, char** argv) {
 						bail_out(EXIT_FAILURE, "fork error");
 						break;
 					case  0:   /* Hier befinden Sie sich im Kindprozess   */
-						child2_execution((int*)&pipefd, line);
+						child2_execution((int*)&pipefd, i);
 	     				break;
 				}
 	    		break;
@@ -92,10 +106,9 @@ int main(int argc, char** argv) {
 		int status = 0;
 		int pid_w = wait(&status);
 		if (pid_w != pid && pid_w != pid2) {
-        		bail_out(EXIT_FAILURE, "wait()");
-      		}
+        	bail_out(EXIT_FAILURE, "wait()");
+      	}
 
-		line++;
 	}
 
 	exit(EXIT_SUCCESS);	
@@ -154,8 +167,19 @@ static void parse_args(int argc, char** argv) {
 				ptr = strchr(optarg, ':');
 				if(ptr != NULL) {
 				   int index = ptr - optarg;
-				   strncpy(word, optarg, index);
-				   strcpy(tag, optarg + index + 1);
+				   if((word = malloc(index)) == NULL) {
+				   		bail_out(EXIT_FAILURE, "Allocating memory for word");
+				   }
+				   int optarg_length = strlen(optarg);
+				   if((tag = malloc(optarg_length)) == NULL) {
+				   		bail_out(EXIT_FAILURE, "Allocating memory for tag");
+				   }
+				   if(strncpy(word, optarg, index) == NULL) {
+				   		bail_out(EXIT_FAILURE, "copying word");
+				   }
+				   if(strncpy(tag, optarg + index + 1, index + optarg_length) == NULL) {
+				   		bail_out(EXIT_FAILURE, "copying tag");
+				   }
 				} else {
 					bail_out(EXIT_FAILURE, "Usage: websh [-e] [-h] [-s WORD:TAG]");	
 				}
@@ -172,8 +196,9 @@ static void parse_args(int argc, char** argv) {
  */
 void remove_line_break(char *str) {
 	char *pos;
-	if ((pos=strchr(str, '\n')) != NULL)
- 	*pos = '\0';
+	if ((pos=strchr(str, '\n')) != NULL){
+ 		*pos = '\0';
+ 	}
 }
 
 /**
@@ -182,16 +207,31 @@ void remove_line_break(char *str) {
  * @param args Array where the Strings should be written to
  * @param delimiter One or more delimiters
  */
-void split(char *str, char **args, char *delimiter) {
+char **split(char *str, char *delimiter) {
+	char **args = NULL;
 	char *ptr;
 	ptr = strtok(str, delimiter);
 	int c = 0;
 	while(ptr != NULL) {
+		if(args == NULL) {
+			args = malloc((c + 1) * sizeof(char *));
+		} else {
+			args = realloc(args, (c + 1) * sizeof(char *));
+		}
+		if(args == NULL) {
+			bail_out(EXIT_FAILURE, "allocation error");
+		}
 		args[c] = ptr;
 		c++;
 	 	ptr = strtok(NULL, delimiter);
 	}
-	args[c] = 0;
+
+	if((args = realloc(args, (c + 1) * sizeof(char *))) == NULL) {
+		bail_out(EXIT_FAILURE, "allocation error");
+	}
+	args[c] = NULL;
+
+	return args;
 }
 
 /**
@@ -200,12 +240,24 @@ void split(char *str, char **args, char *delimiter) {
  * @param args Process with arguments that should be executed
  */
 void child1_execution(int *pipefd, char **args) {
-	close(pipefd[0]);
+	
+	if(close(pipefd[0]) == -1) {
+		bail_out(EXIT_FAILURE, "closing read pipe");
+	}
 
-	dup2(pipefd[1], 1);  // send stdout to the pipe
-	dup2(pipefd[1], 2);  // send stderr to the pipe
-	    		
-	execvp(args[0], &args[0]);
+	// send stdout to the pipe
+	if(dup2(pipefd[1], 1) == -1) {
+		bail_out(EXIT_FAILURE, "stdout to pipe");
+	}  
+
+	// send stderr to the pipe
+	if(dup2(pipefd[1], 2) == -1) {
+		bail_out(EXIT_FAILURE, "stderr to pipe");
+	}    		
+
+	if(execvp(args[0], args) == -1) {
+		bail_out(EXIT_FAILURE, "exec error");
+	}
 
 	free_resources();
 	exit(EXIT_SUCCESS);
@@ -217,33 +269,43 @@ void child1_execution(int *pipefd, char **args) {
  * @param line Line number (index for array 'Lines')
  */
 void child2_execution(int *pipefd, int line){
-	close(pipefd[1]);
-	char buffer[1024];
+	
+	if(close(pipefd[1]) == -1) {
+		bail_out(EXIT_FAILURE, "closing write pipe");
+	}
 
 	if(html_support == true && line == 0) {
-		fprintf(stdout, "<html><head></head><body>\n");		
+		(void) fprintf(stdout, "<html><head></head><body>\n");		
 	}
 
-	pp = fdopen(pipefd[0], "r");
-	while (fgets(buffer, sizeof(buffer), pp) != 0)
+	if(print_headers == true) {
+		(void) fprintf(stdout, "<h1>%s</h1>\n", lines[line]);
+	}
+
+	if((buffer = (char *) malloc(BUFFER_SIZE)) == NULL) {
+		bail_out(EXIT_FAILURE, "allocation error");
+	}
+	if((pp = fdopen(pipefd[0], "r")) == NULL) {
+		bail_out(EXIT_FAILURE, "fdopen failed");
+	}
+	while (fgets(buffer, BUFFER_SIZE, pp) != 0)
 	{
-		remove_line_break((char*)&buffer);
+		remove_line_break(buffer);
 
-		if(print_headers == true) {
-			fprintf(stdout, "<h1>%s</h1>\n", lines[line]);
-		}
 		if(replacing == true && strstr(buffer, word) != NULL) {
-			fprintf(stdout, "<%s>%s</%s><br />\n", tag, buffer, tag);
+			(void) fprintf(stdout, "<%s>%s</%s><br />\n", tag, buffer, tag);
 		} else {
-			fprintf(stdout, "%s<br />\n", buffer);
+			(void) fprintf(stdout, "%s<br />\n", buffer);
 		}
+
+		(void) memset(buffer, '\0', BUFFER_SIZE);
 	}
 
-  	if(html_support == true && strlen(lines[line + 1]) == 0) {
-		fprintf(stdout, "</body></html>");		
+  	if(html_support == true && lines[line + 1] == NULL) {
+		(void) fprintf(stdout, "</body></html>");		
   	}
 
-	fflush(stdout);
+	(void) fflush(stdout);
 
 	free_resources();
 	exit(EXIT_SUCCESS);
@@ -255,5 +317,15 @@ void child2_execution(int *pipefd, int line){
 static void free_resources(void) {
 	if(pipefd[0] > 0) close(pipefd[0]);
 	if(pipefd[1] > 0) close(pipefd[1]);
-	if(pp != NULL) fclose(pp);
+	if(pp != NULL) {
+		(void) fclose(pp);
+	}
+	free(word);
+	free(tag);
+	int i = 0;
+	while(lines[i] != NULL) {
+		free(lines[i++]);
+	}
+	free(lines);
+	free(buffer);
 }
