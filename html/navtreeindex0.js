@@ -6,7 +6,7 @@ var NAVTREEINDEX0 =
 "globals_func.html":[1,1,1],
 "globals_vars.html":[1,1,2],
 "index.html":[],
-"md__r_e_a_d_m_e.html":[0],
+"md_README.html":[0],
 "pages.html":[],
 "websh_8c.html":[1,0,0],
 "websh_8c.html#a07d0cc44f86e3f6baca1b5c34337bd89":[1,0,0,6],

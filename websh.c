@@ -25,22 +25,22 @@ bool print_headers = false;
 bool replacing = false;
 
 /** first part of -s WORD:TAG */
-char *word;
+char *word = NULL;
 
 /** second part of -s WORD:TAG */ 
-char *tag; 
+char *tag = NULL; 
 
 /** used to read all commands that should be executed */
-char **lines; 
+char **lines = NULL; 
 
 /** buffer for child_execution2 */
-char *buffer;
+char *buffer = NULL;
 
 /** pipes for intercommunication */
 int pipefd[2]; 
 
 /** file descriptor for reading lines from pipe */
-FILE *pp; 
+FILE *pp = NULL; 
 
 /** name of this program */
 static char* progname; 
@@ -320,12 +320,16 @@ static void free_resources(void) {
 	if(pp != NULL) {
 		(void) fclose(pp);
 	}
-	free(word);
-	free(tag);
-	int i = 0;
-	while(lines[i] != NULL) {
-		free(lines[i++]);
+	if(word != NULL) {	
+		free(word);
 	}
-	free(lines);
-	free(buffer);
+	if(tag != NULL) {
+		free(tag);
+	}
+	if(lines != NULL) {
+		free(lines);
+	}
+	if(buffer != NULL) {
+		free(buffer);
+	}
 }

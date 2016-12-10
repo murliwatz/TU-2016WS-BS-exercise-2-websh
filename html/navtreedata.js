@@ -1,7 +1,7 @@
 var NAVTREE =
 [
   [ "websh", "index.html", [
-    [ "TU-2016WS-BS-exercise-2-websh", "md__r_e_a_d_m_e.html", null ],
+    [ "TU-2016WS-BS-exercise-2-websh", "md_README.html", null ],
     [ "Files", null, [
       [ "File List", "files.html", "files" ],
       [ "Globals", "globals.html", [
