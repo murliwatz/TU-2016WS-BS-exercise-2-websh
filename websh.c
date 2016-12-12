@@ -62,9 +62,13 @@ int main(int argc, char** argv) {
 	while(fgets(line, BUFFER_SIZE, stdin) != NULL) {
 		line_count++;
 		if(lines == NULL) {
-			lines = malloc(line_count * sizeof(char *));
+			if((lines = malloc(line_count * sizeof(char *))) == NULL) {
+				bail_out(EXIT_FAILURE, "allocation error");
+			}
 		} else {
-			lines = realloc(lines, line_count * sizeof(char *));
+			if((lines = realloc(lines, line_count * sizeof(char *))) == NULL) {
+				bail_out(EXIT_FAILURE, "allocation error");
+			}
 		}
 		lines[line_count - 1] = line;
 		if((line = (char *) malloc(BUFFER_SIZE)) == NULL) {
@@ -72,7 +76,9 @@ int main(int argc, char** argv) {
 		}
 	}
 
-	lines = realloc(lines, (line_count + 1) * sizeof(char *));
+	if((lines = realloc(lines, (line_count + 1) * sizeof(char *))) == NULL) {
+		bail_out(EXIT_FAILURE, "allocation error");
+	}
 	lines[line_count] = NULL;
 
 	for(int i = 0; i < line_count; i++) 
